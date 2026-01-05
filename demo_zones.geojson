@@ -1,0 +1,9 @@
+{
+"type": "FeatureCollection",
+"name": "demo_zones",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::3857" } },
+"features": [
+{ "type": "Feature", "properties": { "zone_id": 1 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 5.0, 5.0 ], [ 5.0, 10.0 ], [ 0.0, 10.0 ], [ 0.0, 5.0 ], [ 5.0, 5.0 ] ] ] } },
+{ "type": "Feature", "properties": { "zone_id": 2 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 10.0, 0.0 ], [ 10.0, 5.0 ], [ 5.0, 5.0 ], [ 5.0, 0.0 ], [ 10.0, 0.0 ] ] ] } }
+]
+}
