@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+
+# OS / editor
+.DS_Store
+.vscode/
+
+# GeoZonal demo outputs
+demo_raster.tif
+demo_zones.geojson
+demo_zonal_out.geojson
+demo_sampled_points.geojson

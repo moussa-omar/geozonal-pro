@@ -16,12 +16,18 @@ from geozonal import zonal_stats, sample_raster
 
 @dataclass
 class CheckResult:
+    """Small container for a validation check outcome."""
     name: str
     ok: bool
     details: str = ""
 
 
 def _isclose(a: float, b: float, tol: float = 1e-6) -> bool:
+    """
+    Float comparison helper:
+    - treats NaN == NaN as True (useful for the "no overlap" case),
+    - otherwise uses numpy.isclose with a small absolute tolerance.
+    """
     if a is None or b is None:
         return False
     if isinstance(a, float) and math.isnan(a) and isinstance(b, float) and math.isnan(b):
@@ -30,18 +36,21 @@ def _isclose(a: float, b: float, tol: float = 1e-6) -> bool:
 
 
 def _assert(cond: bool, msg: str) -> tuple[bool, str]:
+    """Return a (ok, details) pair without throwing exceptions."""
     return (True, msg) if cond else (False, msg)
 
 
 def _write_demo_raster(path: Path, with_nodata: bool) -> tuple[np.ndarray, float]:
     """
-    Writes a 10x10 raster with values 1..100, EPSG:3857, pixel=1.
-    Optionally injects a 2x2 nodata block inside the top-left 5x5 zone.
+    Write a deterministic 10x10 raster with values 1..100.
+    CRS: EPSG:3857, pixel size 1x1, extent x:[0,10], y:[0,10].
+
+    If with_nodata=True, inject a 2x2 nodata block (4 pixels) inside the top-left 5x5 zone.
     """
     arr = np.arange(1, 101, dtype=np.float32).reshape((10, 10))
     nodata = -9999.0
     if with_nodata:
-        arr[1:3, 1:3] = nodata  # 4 nodata pixels inside top-left 5x5
+        arr[1:3, 1:3] = nodata  # 4 nodata pixels inside zone 1
 
     transform = from_origin(0, 10, 1, 1)
 
@@ -63,12 +72,18 @@ def _write_demo_raster(path: Path, with_nodata: bool) -> tuple[np.ndarray, float
 
 
 def _build_zones() -> gpd.GeoDataFrame:
-    poly1 = box(0, 5, 5, 10)   # top-left 5x5 pixels
-    poly2 = box(5, 0, 10, 5)   # bottom-right 5x5 pixels
+    """
+    Build two 5x5 zones aligned with the raster:
+    - Zone 1: top-left 5x5 pixels
+    - Zone 2: bottom-right 5x5 pixels
+    """
+    poly1 = box(0, 5, 5, 10)
+    poly2 = box(5, 0, 10, 5)
     return gpd.GeoDataFrame({"zone_id": [1, 2]}, geometry=[poly1, poly2], crs="EPSG:3857")
 
 
 def check_golden_no_nodata(tmp: Path) -> CheckResult:
+    """Golden test: exact expected outputs on a raster without nodata."""
     raster_path = tmp / "r_nonodata.tif"
     arr, _nodata = _write_demo_raster(raster_path, with_nodata=False)
     zones = _build_zones()
@@ -80,7 +95,7 @@ def check_golden_no_nodata(tmp: Path) -> CheckResult:
         engine="mask",
     )
 
-    # Expected for zone1 (top-left 5x5): rows 0..4, cols 0..4
+    # Expected for zone 1 (top-left 5x5): rows 0..4, cols 0..4
     sub1 = arr[0:5, 0:5]
     exp1 = {
         "count": 25,
@@ -91,7 +106,7 @@ def check_golden_no_nodata(tmp: Path) -> CheckResult:
         "coverage_ratio": 1.0,
     }
 
-    # Expected for zone2 (bottom-right 5x5): rows 5..9, cols 5..9
+    # Expected for zone 2 (bottom-right 5x5): rows 5..9, cols 5..9
     sub2 = arr[5:10, 5:10]
     exp2 = {
         "count": 25,
@@ -102,6 +117,7 @@ def check_golden_no_nodata(tmp: Path) -> CheckResult:
         "coverage_ratio": 1.0,
     }
 
+    # Compare computed vs expected
     for i, exp in [(0, exp1), (1, exp2)]:
         for k, v in exp.items():
             got = out.loc[i, k]
@@ -124,6 +140,7 @@ def check_golden_no_nodata(tmp: Path) -> CheckResult:
 
 
 def check_golden_with_nodata(tmp: Path) -> CheckResult:
+    """Golden test: verify nodata-aware behavior (count, mean, nodata_ratio, coverage_ratio)."""
     raster_path = tmp / "r_withnodata.tif"
     arr, nodata = _write_demo_raster(raster_path, with_nodata=True)
     zones = _build_zones()
@@ -135,7 +152,7 @@ def check_golden_with_nodata(tmp: Path) -> CheckResult:
         engine="mask",
     )
 
-    # Zone1 has 25 pixels, 4 nodata => 21 valid
+    # Zone 1 has 25 pixels total, with 4 nodata => 21 valid pixels
     sub1 = arr[0:5, 0:5]
     valid1 = sub1[sub1 != nodata]
     exp1 = {
@@ -145,7 +162,7 @@ def check_golden_with_nodata(tmp: Path) -> CheckResult:
         "coverage_ratio": 21 / 25,
     }
 
-    # Zone2 unaffected
+    # Zone 2 is unaffected by nodata injection
     sub2 = arr[5:10, 5:10]
     exp2 = {
         "count": 25,
@@ -168,12 +185,13 @@ def check_golden_with_nodata(tmp: Path) -> CheckResult:
 
 
 def check_sampling(tmp: Path) -> CheckResult:
+    """Check that point sampling hits the correct pixels (nearest sampling)."""
     raster_path = tmp / "r_sample.tif"
     arr, _ = _write_demo_raster(raster_path, with_nodata=False)
 
     pts = gpd.GeoDataFrame(
         {"pt_id": [1, 2]},
-        geometry=[Point(0.5, 9.5), Point(9.5, 0.5)],  # centers of (0,0) and (9,9)
+        geometry=[Point(0.5, 9.5), Point(9.5, 0.5)],  # centers of pixels (0,0) and (9,9)
         crs="EPSG:3857",
     )
     out = sample_raster(pts, str(raster_path), out_col="v")
@@ -190,6 +208,10 @@ def check_sampling(tmp: Path) -> CheckResult:
 
 
 def check_engine_consistency(tmp: Path) -> CheckResult:
+    """
+    Ensure that the two internal engines ('mask' and 'window') agree on core metrics.
+    This increases confidence that the implementation is robust.
+    """
     raster_path = tmp / "r_consistency.tif"
     _arr, _ = _write_demo_raster(raster_path, with_nodata=True)
     zones = _build_zones()
@@ -214,11 +236,14 @@ def check_engine_consistency(tmp: Path) -> CheckResult:
 
 
 def check_no_overlap_returns_nan(tmp: Path) -> CheckResult:
+    """
+    Robustness check: if a polygon does not overlap the raster extent,
+    the function should not crash and should return NaN stats + count=0.
+    """
     raster_path = tmp / "r_nooverlap.tif"
     _arr, _ = _write_demo_raster(raster_path, with_nodata=False)
 
-    # Polygon far away from raster extent -> should not crash, should return NaN stats
-    poly = box(1000, 1000, 1010, 1010)
+    poly = box(1000, 1000, 1010, 1010)  # far outside raster bounds
     zones = gpd.GeoDataFrame({"id": [1]}, geometry=[poly], crs="EPSG:3857")
 
     out = zonal_stats(zones, str(raster_path), stats=("mean", "count", "nodata_ratio"), engine="mask")
@@ -227,7 +252,6 @@ def check_no_overlap_returns_nan(tmp: Path) -> CheckResult:
     count = out.loc[0, "count"]
     nodr = out.loc[0, "nodata_ratio"]
 
-    # We expect: no overlap -> mean NaN, count 0, nodata_ratio NaN
     ok_mean = isinstance(mean, float) and math.isnan(mean)
     ok_count = int(count) == 0
     ok_nodr = isinstance(nodr, float) and math.isnan(nodr)
@@ -237,6 +261,10 @@ def check_no_overlap_returns_nan(tmp: Path) -> CheckResult:
 
 
 def main() -> int:
+    """
+    Run all validation checks in an isolated temporary directory so we do not
+    pollute the project workspace with intermediate rasters.
+    """
     results: list[CheckResult] = []
 
     with tempfile.TemporaryDirectory() as d:
@@ -248,7 +276,7 @@ def main() -> int:
         results.append(check_engine_consistency(tmp))
         results.append(check_no_overlap_returns_nan(tmp))
 
-    # Print report
+    # Print a compact summary report
     width = max(len(r.name) for r in results) + 2
     failed = [r for r in results if not r.ok]
 
